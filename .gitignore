@@ -1,0 +1,7 @@
+tags
+*.out
+state/commandAck
+state/experimentId
+state/resultAck
+state/status
+pipes/*
