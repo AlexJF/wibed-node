@@ -1,0 +1,9 @@
+[submodule "JSON.sh"]
+	path = JSON.sh
+	url = https://github.com/dominictarr/JSON.sh
+[submodule "json"]
+	path = json
+	url = https://github.com/dominictarr/JSON.sh
+[submodule "resty"]
+	path = resty
+	url = https://github.com/micha/resty
