@@ -70,7 +70,7 @@ function writeVariable {
     local variableName=$1
     local value=$2
 
-    if $UCI == 1 ; then
+    if [[ $UCI == 1 ]] ; then
         uci set ${UCI_CONFIG}.${variableName}="$value"
     else
         echo "$value" > "$CONFIG_DIR/$variableName"
