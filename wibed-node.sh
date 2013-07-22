@@ -240,7 +240,7 @@ function doPrepareExperiment {
     if errors=$(curl -o "overlay.tar.gz" "$apiUrl/static/overlays/$overlayId" \
             2>&1 >/dev/null) ; then
         status=2
-        writeVariable "experimentId" $experimentId
+        writeVariable "experiment.exp_id" $experimentId
         # TODO: Install overlay
         status=3
     else
@@ -303,7 +303,7 @@ function executeCommands {
     done
 
     echo $lastCommandId > "$COMMANDACK_FILE"
-    writeVariable "commandAck" $lastCommandId
+    writeVariable "experiment.commandAck" $lastCommandId
 }
 
 if commandExists "uci" ; then
@@ -400,7 +400,7 @@ if response=$(POST /api/wibednode/"$id" "$request" \
             if [[ $status == 4 ]] ; then
                 executeCommands experimentCommandIds[@] experimentCommands[@]
                 if [[ $experimentResultAck ]] ; then
-                    writeVariable "resultAck" $experimentResultAck
+                    writeVariable "experiment.resultAck" $experimentResultAck
                 fi
             fi
             ;;
@@ -411,7 +411,7 @@ if response=$(POST /api/wibednode/"$id" "$request" \
     esac
 
     # Update status on disk
-    writeVariable "status" $status
+    writeVariable "general.status" $status
 else
     echo "Communication with server unsuccessful"
 fi
