@@ -1,7 +1,8 @@
 tags
 *.out
-state/commandAck
-state/experimentId
-state/resultAck
-state/status
+config/experiment.commandAck
+config/experiment.exp_id
+config/experiment.resultAck
+config/general.status
+results/*
 pipes/*
