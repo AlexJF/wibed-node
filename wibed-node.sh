@@ -9,44 +9,72 @@ shopt -s nocasematch
 # Load resty for easy REST API access
 . resty/resty
 
-ID_FILE="state/id"
-STATUS_FILE="state/status"
-FIRMWAREINFO_FILE="state/firmware"
-EXPERIMENTID_FILE="state/experimentId"
-COMMANDACK_FILE="state/commandAck"
-RESULTACK_FILE="state/resultAck"
-
 RESULTS_DIR="results"
 
 COMMANDS_PIPE="pipes/commands"
 
-SERVER_URL="http://127.0.0.1:5000"
-
-resty $SERVER_URL
-
-# Function: readFile
+# Function: commandExists
 #
-# Reads data from a file or returns some default value
+# Checks if the specified command exists in the system.
 #
 # Params:
-# - file - The file from which to read the variable.
-# - defaultValue - Value to use if file doesn't exist.
+# - command - The command to check.
 #
 # Returns:
-# - Value read from file or initialized from provided default.
-function readFile {
-    local file=$1
+# 0 - If the command exists, 1 - otherwise.
+commandExists () {
+    type "$1" &> /dev/null ;
+}
+
+# Function: readVariable
+#
+# Read variable from UCI or config files depending on
+# environment.
+#
+# Params:
+# - variableName - The name of the variable to load.
+# - defaultValue - Value to use if no value exists for the variable.
+#
+# Returns:
+# - Value read or initialized from provided default.
+function readVariable {
+    local variableName=$1
     local value=$2
+    local readValue=""
 
-    if [ -e $file ] ; then
-        readValue=$(< $file)
-
-        if [ "$readValue" ] ; then
-            value="$readValue"
+    if [[ $UCI == 1 ]] ; then
+        readValue=$(uci get ${UCI_CONFIG}.${variableName})
+    else
+        file="$CONFIG_DIR/$variableName"
+        if [ -e $file ] ; then
+            readValue=$(< $file)
         fi
     fi
 
+    if [[ -n "$readValue" ]] ; then
+        value="$readValue"
+    fi
+
     echo $value
+}
+
+# Function: writeVariable
+#
+# Write variable to UCI or config files depending on
+# environment.
+#
+# Params:
+# - variableName - The name of the variable to write.
+# - value - Value to write.
+function writeVariable {
+    local variableName=$1
+    local value=$2
+
+    if $UCI == 1 ; then
+        uci set ${UCI_CONFIG}.${variableName}="$value"
+    else
+        echo "$value" > "$CONFIG_DIR/$variableName"
+    fi
 }
 
 # Function: jsonEscape
@@ -86,7 +114,6 @@ function jsonEscape {
 # - JSON list with information about non-acked results.
 function buildResults {
     local resultAck=$1
-    local __resultVar=$2
 
     if [ ! -d "$RESULTS_DIR" ] ; then
         echo "[]"
@@ -210,10 +237,10 @@ function doPrepareExperiment {
     local experimentId=$1
     local overlayId=$2
 
-    if errors=$(curl -o "overlay.tar.gz" "$SERVER_URL/static/overlays/$overlayId" \
+    if errors=$(curl -o "overlay.tar.gz" "$apiUrl/static/overlays/$overlayId" \
             2>&1 >/dev/null) ; then
         status=2
-        echo $experimentId > "$EXPERIMENTID_FILE"
+        writeVariable "experimentId" $experimentId
         # TODO: Install overlay
         status=3
     else
@@ -276,26 +303,46 @@ function executeCommands {
     done
 
     echo $lastCommandId > "$COMMANDACK_FILE"
+    writeVariable "commandAck" $lastCommandId
 }
 
-id=$(readFile $ID_FILE 0)
-status=$(readFile $STATUS_FILE 0)
+if commandExists "uci" ; then
+    # Using UCI
+    UCI=1
+    UCI_CONFIG="wibed"
+else
+    # Using config files
+    UCI=0
+    CONFIG_DIR="config"
+
+    if [[ ! -d "$CONFIG_DIR" ]] ; then
+        mkdir -p "$CONFIG_DIR"
+    fi
+fi
+
+apiUrl=$(readVariable "general.api_url" "")
+resty $apiUrl
+
+id=$(readVariable "general.node_id" 0)
+status=$(readVariable "general.status" 0)
+
 
 request="{\"status\": $status"
 
 case $status in
     0)
-        read model version < $FIRMWAREINFO_FILE
+        model=$(readVariable "upgrade.model")
+        version=$(readVariable "upgrade.version")
         request="$request,
             \"model\": \"$model\",
             \"version\": \"$version\""
         ;;
     [2-4])
-        experimentId=$(readFile $EXPERIMENTID_FILE 0)
+        experimentId=$(readVariable "experiment.exp_id" 0)
 
         if [[ $status == "4" ]] ; then
-            commandAck=$(readFile $COMMANDACK_FILE 0)
-            resultAck=$(readFile $RESULTACK_FILE 0)
+            commandAck=$(readVariable "experiment.commandAck" 0)
+            resultAck=$(readVariable "experiment.resultAck" 0)
             results=$(buildResults $resultAck)
             request="$request,
                 \"commandAck\": $commandAck,
@@ -353,7 +400,7 @@ if response=$(POST /api/wibednode/"$id" "$request" \
             if [[ $status == 4 ]] ; then
                 executeCommands experimentCommandIds[@] experimentCommands[@]
                 if [[ $experimentResultAck ]] ; then
-                    echo $experimentResultAck > $RESULTACK_FILE
+                    writeVariable "resultAck" $experimentResultAck
                 fi
             fi
             ;;
@@ -363,8 +410,8 @@ if response=$(POST /api/wibednode/"$id" "$request" \
             ;;
     esac
 
-    # Update status on file
-    echo $status > $STATUS_FILE
+    # Update status on disk
+    writeVariable "status" $status
 else
     echo "Communication with server unsuccessful"
 fi
