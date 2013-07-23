@@ -6,9 +6,6 @@ cd ${0%/*}
 # Case insensitive regular expression matching
 shopt -s nocasematch
 
-# Load resty for easy REST API access
-. resty/resty
-
 RESULTS_DIR="results"
 
 COMMANDS_PIPE="pipes/commands"
@@ -160,7 +157,7 @@ function buildResults {
 # - json - The json to parse.
 function parseResponse {
     local json="$1"
-    local response=$(echo "$json" | ./json/JSON.sh -b)
+    local response=$(echo "$json" | $JSON_SCRIPT -b)
 
     echo "Response:"
     echo $json
@@ -327,6 +324,27 @@ else
         mkdir -p "$CONFIG_DIR"
     fi
 fi
+
+if commandExists "resty" ; then
+    RESTY_SCRIPT="resty"
+elif [[ -d "resty" ]] ; then
+    RESTY_SCRIPT="resty/resty"
+else
+    echo "Could not find resty. Exiting..."
+    exit 2
+fi
+
+if commandExists "JSON.sh" ; then
+    JSON_SCRIPT="JSON.sh"
+elif [[ -d "json" ]] ; then
+    JSON_SCRIPT="json/JSON.sh"
+else
+    echo "Could not find JSON.sh. Exiting..."
+    exit 3
+fi
+
+# Load resty for easy REST API access
+. $RESTY_SCRIPT
 
 apiUrl=$(readVariable "general.api_url" "")
 resty $apiUrl
