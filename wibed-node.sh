@@ -132,6 +132,12 @@ function buildResults {
                 results="$results,"
             fi
 
+            # If command still hasn't finished we can break
+            # because no following command will have finished too.
+            if [[ ! -e "$cmdResultFolder/exitCode" ]] ; then
+                break
+            fi
+
             exitCode=$(< "$cmdResultFolder/exitCode")
             stdout=$(< "$cmdResultFolder/stdout")
             stdout=$(jsonEscape "$stdout")
@@ -181,16 +187,8 @@ function parseResponse {
                     experimentId=$value
                 elif [[ ${keys[1]} == "overlay" ]] ; then
                     experimentOverlay=$value
-                elif [[ ${keys[1]} == "resultAck" ]] ; then
-                    experimentResultAck=$value
                 elif [[ ${keys[1]} == "action" ]] ; then
                     experimentAction=$value
-                elif [[ ${keys[1]} == "commands" ]] ; then
-                    if [[ ${keys[3]} == "0" ]] ; then
-                        experimentCommandIds[${keys[2]}]="$value"
-                    else
-                        experimentCommands[${keys[2]}]="$value"
-                    fi
                 fi
             elif [[ ${keys[0]} == "upgrade" ]] ; then
                 if [[ ${keys[1]} == "version" ]] ; then
@@ -198,6 +196,14 @@ function parseResponse {
                 elif [[ ${keys[1]} == "delay" ]] ; then
                     upgradeDelay=$value
                 fi
+            elif [[ ${keys[0]} == "commands" ]] ; then
+                if [[ ${keys[2]} == "0" ]] ; then
+                    commandIds[${keys[1]}]="$value"
+                else
+                    commands[${keys[1]}]="$value"
+                fi
+            elif [[ ${keys[0]} == "resultAck" ]] ; then
+                resultAck=$value
             elif [[ ${keys[0]} == "errors" ]] ; then
                 errors[${keys[1]}]="$value"
             fi
@@ -255,10 +261,6 @@ function doPrepareExperiment {
 function doStartExperiment {
     status=4
     # TODO: Call experiment starting script or reboot.
-
-    nohup ./command-executer.sh &
-    # Give some time for named pipe to be created
-    sleep 1
 }
 
 # Function: doFinishExperiment
@@ -295,6 +297,13 @@ function executeCommands {
             continue
         fi
 
+        # If command executor is not running, launch it
+        if [[ ! -e $COMMANDS_PIPE ]] ; then
+            nohup ./command-executer.sh &
+            # Give some time for named pipe to be created
+            sleep 1
+        fi
+
         # Escape command string
         local command=${cmds[$i]}
         echo "Executing command $commandId \"$command\""
@@ -302,8 +311,7 @@ function executeCommands {
         lastCommandId=$commandId
     done
 
-    echo $lastCommandId > "$COMMANDACK_FILE"
-    writeVariable "experiment.commandAck" $lastCommandId
+    writeVariable "general.commandAck" $lastCommandId
 }
 
 if commandExists "uci" ; then
@@ -325,29 +333,25 @@ resty $apiUrl
 
 id=$(readVariable "general.node_id" 0)
 status=$(readVariable "general.status" 0)
-
+model=$(readVariable "upgrade.model")
+version=$(readVariable "upgrade.version")
+experimentId=$(readVariable "experiment.exp_id" -1)
+commandAck=$(readVariable "general.commandAck" -1)
+resultAck=$(readVariable "general.resultAck" -1)
 
 request="{\"status\": $status"
 
 case $status in
     0)
-        model=$(readVariable "upgrade.model")
-        version=$(readVariable "upgrade.version")
         request="$request,
             \"model\": \"$model\",
             \"version\": \"$version\""
         ;;
-    [2-4])
-        experimentId=$(readVariable "experiment.exp_id" 0)
-
-        if [[ $status == "4" ]] ; then
-            commandAck=$(readVariable "experiment.commandAck" 0)
-            resultAck=$(readVariable "experiment.resultAck" 0)
-            results=$(buildResults $resultAck)
-            request="$request,
-                \"commandAck\": $commandAck,
-                \"results\": $results"
-        fi
+    [1,4])
+        results=$(buildResults $resultAck)
+        request="$request,
+            \"commandAck\": $commandAck,
+            \"results\": $results"
         ;;
 esac
 
@@ -395,20 +399,20 @@ if response=$(POST /api/wibednode/"$id" "$request" \
             if [[ $status == 3 && $experimentAction == "RUN" ]] ; then
                 doStartExperiment
             fi
-
-            # RUNNING
-            if [[ $status == 4 ]] ; then
-                executeCommands experimentCommandIds[@] experimentCommands[@]
-                if [[ $experimentResultAck ]] ; then
-                    writeVariable "experiment.resultAck" $experimentResultAck
-                fi
-            fi
             ;;
 
         # UPGRADING
         5)
             ;;
     esac
+
+    if [[ $status == 4 || $status == 1 ]] ; then
+        executeCommands commandIds[@] commands[@]
+    fi
+
+    if [[ $resultAck ]] ; then
+        writeVariable "general.resultAck" $resultAck
+    fi
 
     # Update status on disk
     writeVariable "general.status" $status

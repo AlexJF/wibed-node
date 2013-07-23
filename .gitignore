@@ -1,8 +1,8 @@
 tags
 *.out
-config/experiment.commandAck
+config/general.commandAck
 config/experiment.exp_id
-config/experiment.resultAck
+config/general.resultAck
 config/general.status
 results/*
 pipes/*
