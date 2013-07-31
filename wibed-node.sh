@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # cd to script's dir
 cd ${0%/*}
@@ -190,8 +190,10 @@ function parseResponse {
             elif [[ ${keys[0]} == "upgrade" ]] ; then
                 if [[ ${keys[1]} == "version" ]] ; then
                     upgradeVersion=$value
-                elif [[ ${keys[1]} == "delay" ]] ; then
-                    upgradeDelay=$value
+                elif [[ ${keys[1]} == "utime" ]] ; then
+                    upgradeTime=$value
+                elif [[ ${keys[1]} == "hash" ]] ; then
+                    upgradeHash=$value
                 fi
             elif [[ ${keys[0]} == "commands" ]] ; then
                 if [[ ${keys[2]} == "0" ]] ; then
@@ -218,14 +220,24 @@ function parseResponse {
 #
 # Params:
 # - version - New firmware version.
-# - delay - The delay until the actual installation of the firmware.
+# - hash - The hash of the new firmware.
+# - upgradeTime - The time at which to make the upgrade.
 function doFirmwareUpgrade {
     local version=$1
-    local delay=$2
+    local hash=$2
+    local upgradeTime=$3
 
-    status=5
-    # TODO: Get overlay from server
-    # TODO: Launch upgrade script
+    if errors=$(curl -o "firmware.tar.gz" "$apiUrl/static/firmwares/$version" \
+            2>&1 >/dev/null) ; then
+        status=5
+        # TODO: Launch upgrade script
+        writeVariable "upgrade.version" "$version"
+        status=0
+    else
+        # Report error
+        echo $errors
+        status=6
+    fi
 }
 
 # Function: doPrepareExperiment
@@ -366,10 +378,12 @@ case $status in
             \"version\": \"$version\""
         ;;
     [1,4])
-        results=$(buildResults $resultAck)
-        request="$request,
-            \"commandAck\": $commandAck,
-            \"results\": $results"
+        if [[ $commandAck -ge 0 ]] ; then
+            results=$(buildResults $resultAck)
+            request="$request,
+                \"commandAck\": $commandAck,
+                \"results\": $results"
+        fi
         ;;
 esac
 
@@ -402,7 +416,7 @@ if response=$(POST /api/wibednode/"$id" "$request" \
         # IDLE
         1)
             if [[ $upgradeVersion ]] ; then
-                doFirmwareUpgrade $upgradeVersion $upgradeDelay
+                doFirmwareUpgrade $upgradeVersion $upgradeHash $upgradeTime
             elif [[ $experimentAction == "PREPARE" ]] ; then
                 doPrepareExperiment $experimentId $experimentOverlay
             fi
@@ -424,7 +438,7 @@ if response=$(POST /api/wibednode/"$id" "$request" \
             ;;
     esac
 
-    if [[ $status == 4 || $status == 1 ]] ; then
+    if [[ $status == 4 || $status == 1 || $status == 6 ]] ; then
         executeCommands commandIds[@] commands[@]
     fi
 
