@@ -2,10 +2,8 @@
 
 PKGREPO="/home/alex/Projects/wibed/packages/wibed-system/files"
 
-cp wibed-node.sh "$PKGREPO/usr/sbin/"
-cp command-executer.sh "$PKGREPO/usr/sbin/"
-cp resty/resty "$PKGREPO/usr/sbin/"
-cp json/JSON.sh "$PKGREPO/usr/sbin/"
+cp wibed-node "$PKGREPO/usr/sbin/"
+cp command-executer "$PKGREPO/usr/sbin/"
 
 mkdir -p $PKGREPO/var/wibed/{results,pipes}
 
